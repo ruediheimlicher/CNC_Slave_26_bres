@@ -23,7 +23,7 @@
 
 #define TIMER_ON           1 // Bit fuer timerfunktion start
 
-
+#define TASTATURPIN PF1
 
 #define DC_PWM              22
 

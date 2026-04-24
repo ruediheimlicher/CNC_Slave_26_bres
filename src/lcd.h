@@ -88,9 +88,10 @@
 #endif
 
 /* functions */
+void lcd_putc(const char c);
+void lcd_cls(void);
 void lcd_backlight(int);
-void lcd_initialize(uint8_t, uint8_t, uint8_t);
-void lcd_load_byte(uint8_t);
+void lcd_initialize(uint8_t set_function, uint8_t set_entry_mode, uint8_t on);void lcd_load_byte(uint8_t);
 void lcd_send_cmd(void);
 void lcd_send_char(void);
 void lcd_strobe_E(void);
@@ -101,12 +102,14 @@ void lcd_dec_cursor(uint8_t);
 void lcd_putc(const char c);
 void lcd_puts(const char *s);
 void lcd_putint(uint8_t zahl);
+
 void lcd_putint1(uint8_t zahl);
 void lcd_putint2(uint8_t zahl);
 void lcd_putint12(uint16_t zahl);
 void lcd_putint16(uint16_t zahl);
 void lcd_puthex(uint8_t zahl);
 void lcd_cls(void);
+void lcd_gotoxy(uint8_t x, uint8_t y);
 void lcd_clr_line(uint8_t Linie);
 void lcd_put_zeit(uint8_t minuten, uint8_t stunden);
 void lcd_put_wochentag(uint8_t wd);

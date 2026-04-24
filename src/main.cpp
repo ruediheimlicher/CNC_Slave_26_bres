@@ -15,7 +15,9 @@
 
 #include "settings.h"
 
-#include "lcd.h"
+#include "lcd.c"
+
+#include "adc.c"
 
 // USB
 #define CPU_PRESCALE(n)	(CLKPR = 0x80, CLKPR = (n))
@@ -166,6 +168,9 @@ uint8_t analogtastaturstatus = 0;
 uint16_t TastenStatus=0;
 uint16_t Tastenprellen=0x1F;
 
+uint16_t loopcount0=0;
+uint8_t loopcount1=0;
+
 volatile uint8_t           cncstatus=0x00;
 
 volatile uint8_t           usbstatus=0x00;
@@ -266,12 +271,15 @@ uint16_t errpos = 0;
 // bresenham end
 volatile uint16_t timer3Counter=0; 
 
+volatile uint16_t Tastenwert=0;
+uint16_t tastaturcounter = 0;
+
 // https://www.cprogramcoding.com/p/box-sizing-border-box_549.html
 int maxx(int num1, int num2)
 {
     return (num1 > num2 ) ? num1 : num2;
 }
-void startTimer3()
+void startTimer3(void)
 {
    timerstatus |= (1<<TIMER_ON);
    
@@ -447,9 +455,641 @@ ISR (TIMER3_OVF_vect)
 	} 
 	TCNT3 = 10;							// ergibt 2 kHz fuer Timertakt
 }
+// MARK:  AbschnittLaden_bres
+uint8_t  AbschnittLaden_bres(const uint8_t* AbschnittDaten) // 22us
+{
+   stopTimer3();
+ //  lcd_gotoxy(15,0);
+ //  lcd_puts("    ");
+   
+   uint8_t returnwert=0;
+
+   /*         
+    Reihenfolge der Daten:
+    0    schritteax lb
+    1    schritteax hb
+    2    schritteay lb
+    3    schritteay hb
+    
+    4    delayax lb
+    5    delayax hb
+    6    delayay lb
+    7    delayay hb
+    
+    8    schrittebx lb
+    9    schrittebx hb
+    10    schritteby lb
+    11    schritteby hb
+    
+    12    delaybx lb
+    13    delaybx hb
+    14    delayby lb
+    15    delayby hb
+    
+    
+    16   (8)    code
+    17   (9)    position // Beschreibung der Lage im Schnittpolygon:first, last, ...
+    18   (10)   indexh     // Nummer des Abschnitts
+    19   (11)   indexl   
+    
+    20     pwm
+    
+    21   motorstatus // relevanter Motor fuer Abschnitt
+    
+    22   zoomfaktor
+    
+    25   steps
+    26   micro
+    
+    */         
+   
+   motorsteps = AbschnittDaten[25];
+   
+   micro = AbschnittDaten[26];
+   
+   uint16_t index = (AbschnittDaten[18] << 8) | AbschnittDaten[19];
+   
+   if (AbschnittDaten[35] == 1)
+   {
+      // Serial.printf("+++ +++ +++ \t\t\t index: %d AbschnittLaden_bres WENDEPUNKT \n",index);
+      rampstatus |=(1<<RAMPOKBIT);
+   }
+   
+   // pwm-rate
+   PWM = AbschnittDaten[20];
+   //// Serial.printf("AbschnittLaden_4M steps: %d micro: %d PWM: %d\n",steps,micro,PWM);
+   //// Serial.printf("AbschnittLaden_bres start \n");
+   //**   analogWrite(DC_PWM, PWM);
+   
+   //// Serial.printf("AbschnittLaden_bres AbschnittDaten eingang index: %d\n", index);
+   
+   
+   /*
+   for(uint8_t i=0;i<27;i++) // 5 us ohne printf, 10ms mit printf
+   { 
+      // Serial.printf("%d \t",AbschnittDaten[i]);
+   }
+   // Serial.printf("\n");
+   
+    //  // Serial.printf("AbschnittLaden_4M steps: %d micro: %d\n",motorsteps,micro);
+   
+   //   lage = AbschnittDaten[9]; // Start: 1, innerhalb: 0, Ende: 2
+    */
+   
+   int lage = 0;
+   lage = AbschnittDaten[17]; // Start: 1, innerhalb: 0, Ende: 2
+  // // Serial.printf("******* *********   AbschnittLaden_bres lage: %d\n",lage);
+  // // Serial.printf("AbschnittLaden_bres lage: %d\n",lage);
+   if (lage & 0x01) // erstes Element
+   {
+      returnwert=1;
+   }
+   if (lage & 0x02) // letztes Element
+   {
+      returnwert=2;
+   }
+   
+   richtung=0;
+   
+   // Motor A
+   //digitalWriteFast(MA_EN,LOW); // Pololu ON
+   STEPPERPORT_1 &= ~(1<<MA_EN); // Pololu ON
+   uint8_t dataL=0;
+   uint8_t dataH=0;
+   
+   uint8_t delayL=0;
+   uint8_t delayH=0;
+   
+   dataL=AbschnittDaten[0];
+   dataH=AbschnittDaten[1];
+   
+   //lcd_gotoxy(17,0);
+   int8_t vz = 1;
+   if (dataH & (0x80)) // Bit 7 gesetzt, negative zahl
+   {
+      richtung |= (1<<RICHTUNG_A); // Rueckwarts
+      //digitalWriteFast(MA_RI, LOW); // PIN fuer Treiber stellen
+      STEPPERPORT_1 &= ~(1<< MA_RI); // PIN fuer Treiber stellen
+      vz = -1;
+      //lcd_putc('r');
+   }
+   else 
+   {
+      richtung &= ~(1<<RICHTUNG_A);
+      //digitalWriteFast(MA_RI, HIGH);
+      STEPPERPORT_1 |= (1<< MA_RI);
+      //lcd_putc('v');   // Vorwaerts
+   }
+   
+   dataH &= (0x7F); // bit 8 entfernen
+   StepCounterA = dataL | (dataH << 8);      //    
+
+   StepCounterA *= micro;
+   StepStartA = StepCounterA;
+      
+   delayL=AbschnittDaten[4];
+   delayH=AbschnittDaten[5];
+   
+   DelayA = delayL | (delayH << 8);
+   
+   CounterA = DelayA;
+   
+   // Motor B
+   STEPPERPORT_1 &= ~(1<<MB_EN);   // Pololu ON
+   
+   dataL=AbschnittDaten[2];
+   dataH=AbschnittDaten[3];
+   //lcd_gotoxy(19,1);
+   vz = 1;
+   if (dataH & (0x80)) // Bit 7 gesetzt, negative zahl
+   {
+      richtung |= (1<<RICHTUNG_B); // Rueckwarts
+      //digitalWriteFast(MB_RI, LOW);      //lcd_putc('r');
+      STEPPERPORT_1 &= ~(1<< MB_RI);
+      vz = -1;
+   }
+   else 
+   {
+      richtung &= ~(1<<RICHTUNG_B);
+      STEPPERPORT_1 |= (1<< MB_RI);
+   }
+   
+   dataH &= (0x7F);
+    
+   StepCounterB = dataL | (dataH <<8);
+   
+   StepCounterB *= micro;
+   
+   
+    DelayB = (AbschnittDaten[7]<<8) | AbschnittDaten[6];
+   
+   
+   // Serial.printf("\nAbschnittLaden_bres index: %d StepCounterA  : %d DelayA: %d StepCounterB: %d DelayB: %d\n",index,StepCounterA, DelayA, StepCounterB, DelayB);
+
+   
+   CounterB = DelayB;
+   
+   
+    // Motor C
+   //digitalWriteFast(MC_EN,LOW);    // Pololu ON
+   STEPPERPORT_2 &= ~(1<<MC_EN); // Pololu ON
+   //CounterC=0;
+   dataL=0;
+   dataH=0;
+   
+   delayL=0;
+   delayH=0;
+   
+   dataL=AbschnittDaten[8];
+   dataH=AbschnittDaten[9];
+   //// Serial.printf("AbschnittLaden_4M C datah: %d\n",dataH);
+   //richtung=0;
+   if (dataH & (0x80)) // Bit 7 gesetzt, negative zahl
+   {
+      richtung |= (1<<RICHTUNG_C); // Rueckwarts
+      //digitalWriteFast(MC_RI, LOW);
+      STEPPERPORT_2 &= ~(1<< MC_RI);
+      //// Serial.printf("AbschnittLaden_4M C negativ\n");
+   }
+   else 
+   {
+      richtung &= ~(1<<RICHTUNG_C);
+      //digitalWriteFast(MA_RI, HIGH);
+      STEPPERPORT_2 |= (1<< MC_RI);
+      //// Serial.printf("AbschnittLaden_4M C positiv\n");
+   }
+   
+   dataH &= (0x7F);
+//   StepCounterC = dataH;      // HByte
+//   StepCounterC <<= 8;      // shift 8
+//   StepCounterC += dataL;   // +LByte
+   
+   StepCounterC = dataL | (dataH << 8);
+   StepCounterC  *= micro;
+   
+   StepStartC = StepCounterC;
+   delayL=AbschnittDaten[12];
+   delayH=AbschnittDaten[13];
+   
+//   DelayC = delayH;
+//   DelayC <<=8;
+//   DelayC += delayL;
+   
+   DelayC = delayL | (delayH <<8);
+   
+   CounterC = DelayC;
+
+   // Motor D
+   STEPPERPORT_2 &= ~(1<<MD_EN); // Pololu ON
+   dataL=0;
+   dataH=0;
+   
+   delayL = 0;
+   delayH = 0;
+   
+   dataL = AbschnittDaten[10];
+   dataH = AbschnittDaten[11];
+   //// Serial.printf("AbschnittLaden_4M D datah: %d\n",dataH);
+   if (dataH & (0x80)) // Bit 7 gesetzt, negative zahl
+   {
+      richtung |= (1<<RICHTUNG_D); // Rueckwarts
+      STEPPERPORT_2 &= ~(1<<MD_RI); // Rueckwarts
+      //// Serial.printf("AbschnittLaden_4M D negativ\n");
+   }
+   else 
+   {
+      richtung &= ~(1<<RICHTUNG_D);
+      STEPPERPORT_2 |= (1<< MD_RI);
+      //// Serial.printf("AbschnittLaden_4M D positiv\n");
+   }
+   
+   dataH &= (0x7F);
+   
+   StepCounterD = dataL | (dataH << 8); 
+   StepCounterD  *= micro;
+   
+   delayL=AbschnittDaten[14];
+   delayH=AbschnittDaten[15];
+   
+   DelayD = delayL | (delayH <<8);
+   
+   //// Serial.printf("AbschnittLaden_4M StepCounterD: %d DelayD: %d\n",StepCounterD,DelayD);
+   CounterD = DelayD;
+   
+   //  ****
+   //  Bresenham
+   //  ***
+   //// Serial.printf("AbschnittLaden_bres vor bresenham: StepCounterA: %d StepCounterB: %d\n",StepCounterA,StepCounterB);
+   deltafastdirectionA = 0;
+   deltaslowdirectionA = 0;
+   deltafastdirectionB = 0;
+   deltaslowdirectionB = 0;
+   deltafastdelayA = 0;
+   deltafastdelayB = 0;
+
+   bresenhamstatus = 0;
+   // bresenham Seite A
+   
+   // relevanten Motor setzen
+   if (StepCounterA > StepCounterB)
+   {
+      bresenhamstatus |= (1<<BRES_MOTORA);
+      //
+      pdxA = 1;
+      pdyA = 0;
+      ddxA = 1;
+      ddyA = 1;
+      deltaslowdirectionA = StepCounterB;
+      deltafastdirectionA = StepCounterA;
+      deltafastdelayA = DelayA;
+ //     // Serial.printf("AbschnittLaden_bres  A > B\n");
+   }
+   else
+   {
+      bresenhamstatus |= (1<<BRES_MOTORB);
+      //
+      pdxA = 0;
+      pdyA = 1;
+      ddxA = 1;
+      ddyA = 1;
+      deltaslowdirectionA = StepCounterA;
+      deltafastdirectionA = StepCounterB;
+      deltafastdelayA = DelayB;
+ //     // Serial.printf("AbschnittLaden_bres  A < B\n");
+   }
+   // aktuelle Werte einsetzen
+   bres_delayA = deltafastdelayA; // aktueller delay in fastdir
+   bres_counterA = deltafastdirectionA; // aktueller counter fuer steps
+   
+   if(rampstatus & (1<<RAMPOKBIT))
+   {
+      // Serial.printf("AbschnittLaden_bres index: %d set RAMPSTARTBIT\n",index);
+      rampstatus |= (1<<RAMPSTARTBIT);
+      errpos = 0;
+      ramptimerintervall += (ramptimerintervall/4*3);
+      
+      //delayTimer.update(ramptimerintervall);
+   }
+   
+   xA = StepCounterA; // 
+   yA = StepCounterB;
+
+   errA = deltafastdirectionA/2;
+   
+  // // Serial.printf("AbschnittLaden_bres deltafastdirectionA: %d deltaslowdirectionA: %d  deltafastdelayA: %d errA: %d bres_counterA: %d bres_delayA: %d\n",deltafastdirectionA,deltaslowdirectionA, deltafastdelayA,errA,bres_counterA,bres_delayA);
+
+   // bresenham Seite B
+   
+    
+   
+   // relevanten Motor setzen
+   if (StepCounterC > StepCounterD)
+   {
+      bresenhamstatus |= (1<<BRES_MOTORC);
+      //
+      pdxB = 1;
+      pdyB = 0;
+      ddxB = 1;
+      ddyB = 1;
+      deltaslowdirectionB = StepCounterD;
+      deltafastdirectionB = StepCounterC;
+      deltafastdelayB = DelayC;
+      //// Serial.printf("AbschnittLaden_bres  C > D\n");
+   }
+   else
+   {
+      bresenhamstatus |= (1<<BRES_MOTORD);
+      //
+      pdxB = 0;
+      pdyB = 1;
+      ddxB = 1;
+      ddyB = 1;
+      deltaslowdirectionB = StepCounterC;
+      deltafastdirectionB = StepCounterD;
+      deltafastdelayB = DelayD;
+      //// Serial.printf("AbschnittLaden_bres  C < D\n");
+   }
+   // aktuelle Werte einsetzen
+   bres_delayB = deltafastdelayB; // aktueller delay in fastdir
+   bres_counterB = deltafastdirectionB; // aktueller counter fuer steps
+   
+   xB = StepCounterC; // 
+   yB = StepCounterD;
+
+   errB = deltafastdirectionB/2;
+   
+     {
+   
+   timerintervall_FAST = TIMERINTERVALL;
+   //  OSZI_B_LO();
+   }
+   
+   
+   // motorstatus: welcher Motor ist relevant
+   motorstatus = AbschnittDaten[21];
+   
+   // richtung change
+#pragma mark Richtung change
+   
+  // rampstatus |=(1<<RAMPOKBIT);
+
+   
+   startTimer3();
+   
+   //// Serial.printf("\nAbschnittLaden_bres end aktuellelage: %d \n",returnwert);
+     return returnwert;
+ 
+}
+
+
+
+void AnschlagVonMotor(const uint8_t motor) // Schlitten ist am Anschlag
+{
+   //NSLog(@"AnschlagVonMotor: %d anschlagstatus am Beginn: %d",motor, anschlagstatus);
+   if (richtung & (1<<(RICHTUNG_A + motor))) // Richtung war auf Anschlag A0 zu         
+   {
+      anschlagcounter ++;
+       // MARK: END_A0 + motor
+      if (!(anschlagstatus &(1<< (END_A0 + motor)))) // Bit noch nicht gesetzt
+      {
+         cli();
+         PWM = 0;
+         lcd_gotoxy(12,2);
+         lcd_putc('A' + motor);
+         lcd_putc('0');
+         anschlagstatus |= (1<< (END_A0 + motor));      // Bit fuer Anschlag A0+motor setzen
+         //anschlagstatus |= (1<< (END_A0 + motor + 4)); 
+   
+        // NSLog(@"anschlagstatus gesetzt: %d cncstatus: %d" anschlagstatus, cncstatus);
+         //cncstatus |=  (1<<GO_HOME);
+         if (cncstatus & (1<<GO_HOME)) // nur eigene Seite abstellen
+         {
+   // ********************************* Start HOME *****************
+            // Zuerst kommt der Schlitten am Anschalg A oder C an
+            
+            lcd_gotoxy(15,0);
+            lcd_puts("home");
+           // Zuerst horizonal auf Anschlag
+            switch (motor) // Stepperport 1
+            {
+               case 0:
+               {
+                  
+               }
+                                    
+            }//switch motor
+            //lcd_gotoxy(10,1);
+            //lcd_putc('L');
+            //lcd_putint2(ladeposition);
+            
+            sendbuffer[0]=0xB5 + motor; // HOME Ankunft melden
+            cncstatus |= (1<<motor); 
+            
+             
+            if (motor<2) // Stepperport 1
+            {
+               //lcd_gotoxy(0,2);
+               
+               //lcd_puts("P1 M");
+               //lcd_putint1(motor);
+
+               STEPPERPORT_1 |= (1<<(MA_EN + motor)); // Motor 0 ODER 1 OFF // andere Richtung kommt anschliessend von master
+               
+               if (anschlagstatus &(1<< END_A0)) // Anschlag von Motor A               
+               {
+                  //lcd_gotoxy(6,3);
+                  //lcd_puts("A0");
+                  //StepCounterA=0; 
+                  //StepCounterB=0; 
+                  //   deltafastdirectionB = 0;
+                  //  deltaslowdirectionB = 0;
+               }
+                  
+                  if (anschlagstatus &(1<< END_B0)) // Anschlag von Motor B, NACH Motor A
+                  {
+  
+                     //lcd_gotoxy(8,3);
+                     //lcd_puts("B0");
+                     //StepCounterB=0; 
+                  }
+               
+               // 
+               //StepCounterB=0; 
+                //             CounterA=0xFFFF;
+                //             CounterB=0xFFFF;
+               
+            }
+            else // Stepperport 2
+            {
+               //lcd_gotoxy(0,3);
+               //lcd_puts("P2 M");
+               //lcd_putint1(motor);
+               
+
+               STEPPERPORT_2 |= (1<<(MA_EN + motor));     // Motor 2,3 OFF
+               //STEPPERPORT_1 |= (1<<(MA_EN + motor - 2)); // Paralleler Motor 0,1 OFF
+               
+               if (anschlagstatus &(1<< END_C0)) // Anschlag von Motor C               
+               {
+                  //lcd_gotoxy(6,3);
+                  //lcd_puts("C0");
+                  //StepCounterC=0; 
+                  //StepCounterD=0;
+                 
+               }
+                  
+   
+                  if (anschlagstatus &(1<< END_D0)) // Anschlag von Motor D, NACH Motor C
+                  {
+                     //lcd_gotoxy(8,3);
+                     //lcd_puts("D0");
+                     StepCounterD=0; 
+                  }
+               
+              
+              // StepCounterD=0;
+               //               CounterC=0xFFFF;
+               //               CounterD=0xFFFF;
+               
+            } // end Stepperport 2
+         
+    //        cncstatus &= ~(1<<GO_HOME);
+            //ladeposition=0;
+    //        AbschnittCounter++;
+            //sendbuffer[0]=0xEA;
+            
+    //        lcd_putc('C');
+    //        lcd_putint(cncstatus);
+
+ //           lcd_puthex(STEPPERPIN_1);
+//            lcd_puthex(STEPPERPIN_2);
+            
+            sendbuffer[7]=abschnittnummer; // lo
+            sendbuffer[8]=ladeposition;
+            sendbuffer[22] = cncstatus;
+            sendbuffer[19] = anschlagstatus;
+            
+            sendbuffer[23] = (StepCounterA & 0xFF0)>>8;
+            sendbuffer[24] = StepCounterA & 0x00FF;
+            sendbuffer[25] = (StepCounterB & 0xFF0)>>8;
+            sendbuffer[26] = StepCounterB & 0x00FF;
+            sendbuffer[27] = (StepCounterC & 0xFF0)>>8;
+            sendbuffer[28] = StepCounterC & 0x00FF;
+            sendbuffer[29] = (StepCounterD & 0xFF0)>>8;
+            sendbuffer[30] = StepCounterD & 0x00FF;
+            lcd_gotoxy(0,0);
+            lcd_puts("code ");
+            lcd_gotoxy(6+motor,0);
+            lcd_puthex(sendbuffer[0]);
+ //           usb_rawhid_send((void*)sendbuffer, 50); // 220518 diff
+            sei();
+            
+  //          cncstatus &= ~(1<<GO_HOME);
+            
+            
+            
+    //        richtung &= ~(1<<(RICHTUNG_A + motor)); // Richtung umschalten // 220518 diff
+// ********************************* End HOME *****************
+         } // end HOME
+         
+         else           // beide Seiten abstellen, Vorgang unterbrechen
+         {    
+            lcd_gotoxy(10,0);
+            lcd_puts("both");
+            cncstatus=0;
+            sendbuffer[0]=0xA5 + motor;
+            
+            if (motor<2) // Stepperport 1
+            {
+               deltafastdirectionA = 0;
+               deltafastdirectionB = 0;
+               deltaslowdirectionA = 0;
+               deltaslowdirectionB = 0;
+               
+               
+               STEPPERPORT_1 |= (1<<(MA_EN + motor));     // Motor 0,1 OFF
+               STEPPERPORT_2 |= (1<<(MC_EN + motor)); // Paralleler Motor 2,3 OFF
+               
+               
+            } // end Stepperport 1
+            else // Stepperport 2
+            {
+               deltafastdirectionA = 0;
+               deltafastdirectionB = 0;
+               deltaslowdirectionA = 0;
+               deltaslowdirectionB = 0;
+              
+               
+               STEPPERPORT_2 |= (1<<(MA_EN + motor));     // Motor 2,3 OFF
+               STEPPERPORT_1 |= (1<<(MC_EN + motor )); // Paralleler Motor 0,1 OFF
+            }
+            
+            // Alles abstellen
+            /*
+            StepCounterA=0;
+            StepCounterB=0;
+            StepCounterC=0;
+            StepCounterD=0;
+            */
+            /*
+            CounterA = 0;
+            CounterB = 0;
+            CounterC = 0;
+            CounterD = 0;
+            */
+            ladeposition=0;
+            motorstatus=0;
+             
+            sendbuffer[5]=abschnittnummer;
+            sendbuffer[6]=ladeposition;
+            sendbuffer[22] = cncstatus;
+            lcd_gotoxy(0,0);
+            lcd_puts("code ");
+            lcd_gotoxy(6+motor,0);
+            lcd_puthex(sendbuffer[0]);
+
+            rawhid_send((void*)sendbuffer, 32,50);
+            sei();
+             richtung &= ~(1<<(RICHTUNG_A + motor)); // Richtung umschalten
+            
+         } // both
+         
+         sei();
+      } // END_A0 + motor
+      else
+      {
+         
+      }
+      
+   } // richtung war auf Anschlag zu
+   /*
+   else  // richtung ist von Anschlag weg
+   {
+       if ((anschlagstatus &(1<< (END_A0 + motor))))
+      {
+         anschlagstatus &= ~(1<< (END_A0 + motor)); // Bit fuer Anschlag X0 zuruecksetzen
+         lcd_gotoxy(12,2);
+         lcd_putc('x');
+         lcd_putc('x');
+      }
+      else
+      {
+      }
+      
+   }
+   */
+}
+
+
 
 void setup() 
 {
+  int8_t r;
+
+   uint16_t count=0;
+
+   // set for 16 MHz clock
+   CPU_PRESCALE(0);
   // Initialize LED pin as output
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
@@ -457,16 +1097,44 @@ void setup()
   // Initialize Raw HID
   rawhid_init();
   
-  delay(1000); // Wait for USB enumeration
+  _delay_ms(1000); // Wait for USB enumeration
+  
+  lcd_initialize(LCD_FUNCTION_8x2, LCD_CMD_ENTRY_INC, LCD_CMD_ON);
+
+   lcd_puts("Guten Tag\0");
+   _delay_ms(1000);
+   lcd_cls();
+   //lcd_puts("READY\0");
+slaveinit();
+initADC(2);
+PWM = 0;
+   
+     lcd_clr_line(0);
+
 }
 
 void loop() {
   // Process incoming Raw HID data
   process_rawhid_data();
   
+  tastaturcounter++;
+      if (tastaturcounter > 0xFFF)
+      {
+         tastaturcounter = 0;
+         Tastenwert=readKanal(TASTATURPIN)>>2;
+         
+      }
+      //Blinkanzeige
+      loopcount0+=1;
+      if (loopcount0==0x8FFF)
+      {
+         loopcount0=0;
+         loopcount1+=1;
+         LOOPLEDPORT ^=(1<<LOOPLED);
+         PORTD ^= (1<<PORTD6);
+      }// if loopcount
+
+
   // Simple heartbeat LED blink
-  digitalWrite(LED_PIN, HIGH);
-  delay(100);
-  digitalWrite(LED_PIN, LOW);
-  delay(900);
+  
 }

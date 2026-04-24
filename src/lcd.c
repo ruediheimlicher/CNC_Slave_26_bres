@@ -97,8 +97,7 @@ lcd_backlight(int backlight_on)
  
  
 */
-void
-lcd_initialize(uint8_t set_function, uint8_t set_entry_mode, uint8_t on)
+void lcd_initialize(uint8_t set_function, uint8_t set_entry_mode, uint8_t on)
 {
         /* 20ms delay while LCD powers on */
         _delay_ms(30);	   
@@ -220,7 +219,7 @@ lcd_putc(const char c)
 void lcd_putint(uint8_t zahl)
 {
 char string[4];
-  int8_t i;                             // schleifenzŠhler
+  int8_t i;                             // schleifenzï¿½hler
  
   string[3]='\0';                       // String Terminator
   for(i=2; i>=0; i--) 
@@ -234,7 +233,7 @@ lcd_puts(string);
 void lcd_putint12(uint16_t zahl)
 {
    char string[5];
-   int8_t i;                             // schleifenzŠhler
+   int8_t i;                             // schleifenzï¿½hler
    
    string[4]='\0';                       // String Terminator
    for(i=3; i>=0; i--)
@@ -248,7 +247,7 @@ void lcd_putint12(uint16_t zahl)
 void lcd_putint16(uint16_t zahl)
 {
 char string[8];
-  int8_t i;                             // schleifenzŠhler
+  int8_t i;                             // schleifenzï¿½hler
  
   string[7]='\0';                       // String Terminator
   for(i=6; i>=0; i--) 
@@ -265,7 +264,7 @@ lcd_puts(string);
 void lcd_putint2(uint8_t zahl)	//zweistellige Zahl
 {
 	char string[3];
-	int8_t i;								// SchleifenzŠhler
+	int8_t i;								// Schleifenzï¿½hler
 	zahl%=100;								// 2 hintere Stelle
 	//  string[4]='\0';                     // String Terminator
 	string[2]='\0';							// String Terminator
@@ -444,7 +443,7 @@ Funktion zur Umwandlung einer vorzeichenlosen 32 Bit Zahl in einen String
  
 void r_uitoa(uint32_t zahl, char* string) 
 {
-  int8_t i;                             // schleifenzŠhler
+  int8_t i;                             // schleifenzï¿½hler
  
   string[10]='\0';                       // String Terminator
   for(i=9; i>=0; i--) {
@@ -512,7 +511,7 @@ uint8_t start : Offset im String, ab der die Zahl ausgegeben werden soll,
                 Vorzeichenbehaftete zahlen : 1..11
 uint8_t komma : Offset im String, zeigt auf die Stelle an welcher das virtuelle
                 Komma steht (erste Nachkommastelle)
-                komma muss immer gršsser oder gleich start sein !
+                komma muss immer grï¿½sser oder gleich start sein !
  
 uint8_t frac  : Anzahl der Nachkommastellen
  
@@ -522,7 +521,7 @@ uint8_t frac  : Anzahl der Nachkommastellen
 {
 	//char string[5];
 	char string[3];
-	uint8_t l,h;                             // schleifenzŠhler
+	uint8_t l,h;                             // schleifenzï¿½hler
 	
 	string[2]='\0';                       // String Terminator
 	l=(zahl % 16);
@@ -554,13 +553,13 @@ uint8_t frac  : Anzahl der Nachkommastellen
 void lcd_put_frac(char* string, uint8_t start, uint8_t komma, uint8_t frac) 
 {
  
-  uint8_t i;            // ZŠhler
-  uint8_t flag=0;       // Merker fŸr fŸhrende Nullen
+  uint8_t i;            // Zï¿½hler
+  uint8_t flag=0;       // Merker fï¿½r fï¿½hrende Nullen
  
   // Vorzeichen ausgeben  
   if (string[0]=='-') lcd_putc('-'); else lcd_putc(' ');
  
-  // Vorkommastellen ohne fŸhrende Nullen ausgeben
+  // Vorkommastellen ohne fï¿½hrende Nullen ausgeben
   for(i=start; i;i--) {
     if (flag==1 || string[i]!='0') {
       lcd_putc(string[i]);
